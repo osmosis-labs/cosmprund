@@ -111,7 +111,7 @@ func pruneAppState(home string) error {
 	if app == "osmosis" {
 		osmoKeys := types.NewKVStoreKeys(
 			"downtimedetector",
-			"ibchooks",
+			// "ibchooks",
 			"lockup", //lockuptypes.StoreKey,
 			"concentratedliquidity",
 			"gamm", // gammtypes.StoreKey,
