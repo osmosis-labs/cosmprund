@@ -105,13 +105,13 @@ func pruneAppState(home string) error {
 		evidencetypes.StoreKey, minttypes.StoreKey, govtypes.StoreKey, ibctransfertypes.StoreKey,
 		packetforwardtypes.StoreKey,
 		paramstypes.StoreKey, consensusparamtypes.StoreKey, capabilitytypes.StoreKey, crisistypes.StoreKey, upgradetypes.StoreKey,
-		//  feegrant.StoreKey,
+		// feegrant.StoreKey,
 	)
 
 	if app == "osmosis" {
 		osmoKeys := types.NewKVStoreKeys(
 			"downtimedetector",
-			// "ibchooks",
+			"hooks-for-ibc",
 			"lockup", //lockuptypes.StoreKey,
 			"concentratedliquidity",
 			"gamm", // gammtypes.StoreKey,
@@ -127,7 +127,7 @@ func pruneAppState(home string) error {
 			"valsetpref",
 			"superfluid", // superfluidtypes.StoreKey,
 			"wasm",       // wasm.StoreKey,
-			//"rate-limited-ibc",
+			//"rate-limited-ibc", // there is no store registered for this module
 		)
 		for key, value := range osmoKeys {
 			keys[key] = value
