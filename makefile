@@ -8,6 +8,11 @@ LD_FLAGS = -X github.com/strangelove-ventures/lens/cmd.Version=$(VERSION) \
 
 BUILD_FLAGS := -ldflags '$(LD_FLAGS)'
 
+docker:
+	@echo "Building Docker Image"
+	@read -p "Enter the tag: " tag; \
+	docker build -t czarcas7ic/cosmpruned:$$tag -f Dockerfile .
+
 build:
 	@echo "Building Pruning"
 	@go build -mod readonly $(BUILD_FLAGS) -o build/cosmprund main.go
