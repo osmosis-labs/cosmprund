@@ -127,7 +127,7 @@ func pruneAppState(home string) error {
 			"valsetpref",
 			"superfluid", // superfluidtypes.StoreKey,
 			"wasm",       // wasm.StoreKey,
-			"rate-limited-ibc",
+			//"rate-limited-ibc",
 		)
 		for key, value := range osmoKeys {
 			keys[key] = value
