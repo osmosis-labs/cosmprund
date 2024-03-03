@@ -11,16 +11,20 @@ import (
 	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	packetforwardtypes "github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v7/packetforward/types"
+	icqtypes "github.com/cosmos/ibc-apps/modules/async-icq/v7/types"
+	icahosttypes "github.com/cosmos/ibc-go/v7/modules/apps/27-interchain-accounts/host/types"
+	ibctransfertypes "github.com/cosmos/ibc-go/v7/modules/apps/transfer/types"
+	ibchost "github.com/cosmos/ibc-go/v7/modules/core/exported"
 
-	//consensusparamtypes "github.com/cosmos/cosmos-sdk/x/consensus/types"
 	db "github.com/cometbft/cometbft-db"
 	"github.com/cometbft/cometbft/state"
 	tmstore "github.com/cometbft/cometbft/store"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	consensusparamtypes "github.com/cosmos/cosmos-sdk/x/consensus/types"
 	crisistypes "github.com/cosmos/cosmos-sdk/x/crisis/types"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	evidencetypes "github.com/cosmos/cosmos-sdk/x/evidence/types"
-	feegrant "github.com/cosmos/cosmos-sdk/x/feegrant"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
@@ -95,31 +99,35 @@ func pruneAppState(home string) error {
 	// only mount keys from core sdk
 	// todo allow for other keys to be mounted
 	keys := types.NewKVStoreKeys(
-		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey, crisistypes.StoreKey,
-		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey,
-		upgradetypes.StoreKey, feegrant.StoreKey,
-		evidencetypes.StoreKey, capabilitytypes.StoreKey,
-		authzkeeper.StoreKey,
+		authtypes.StoreKey, banktypes.StoreKey, authzkeeper.StoreKey, stakingtypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey, ibchost.StoreKey,
+		icahosttypes.StoreKey,
+		icqtypes.StoreKey,
+		evidencetypes.StoreKey, minttypes.StoreKey, govtypes.StoreKey, ibctransfertypes.StoreKey,
+		packetforwardtypes.StoreKey,
+		paramstypes.StoreKey, consensusparamtypes.StoreKey, capabilitytypes.StoreKey, crisistypes.StoreKey, upgradetypes.StoreKey,
+		//  feegrant.StoreKey,
 	)
-
-	// consensusparamtypes.StoreKey,
-	// ibctransfertypes.StoreKey
-	// ibchost.StoreKey
 
 	if app == "osmosis" {
 		osmoKeys := types.NewKVStoreKeys(
-			"icahost",        //icahosttypes.StoreKey,
-			"gamm",           // gammtypes.StoreKey,
-			"lockup",         //lockuptypes.StoreKey,
-			"incentives",     // incentivestypes.StoreKey,
-			"epochs",         // epochstypes.StoreKey,
-			"poolincentives", //poolincentivestypes.StoreKey,
+			"downtimedetector",
+			"ibchooks",
+			"lockup", //lockuptypes.StoreKey,
+			"concentratedliquidity",
+			"gamm", // gammtypes.StoreKey,
+			"cosmwasmpool",
+			"poolmanager",
+			"twap",
+			"epochs", // epochstypes.StoreKey,
+			"protorev",
 			"txfees",         // txfeestypes.StoreKey,
-			"superfluid",     // superfluidtypes.StoreKey,
-			"bech32ibc",      // bech32ibctypes.StoreKey,
-			"wasm",           // wasm.StoreKey,
+			"incentives",     // incentivestypes.StoreKey,
+			"poolincentives", //poolincentivestypes.StoreKey,
 			"tokenfactory",   //tokenfactorytypes.StoreKey,
+			"valsetpref",
+			"superfluid", // superfluidtypes.StoreKey,
+			"wasm",       // wasm.StoreKey,
+			"rate-limited-ibc",
 		)
 		for key, value := range osmoKeys {
 			keys[key] = value
