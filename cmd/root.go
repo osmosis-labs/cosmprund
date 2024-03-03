@@ -8,7 +8,6 @@ import (
 )
 
 var (
-	homePath   string
 	dataDir    string
 	backend    string
 	app        string
