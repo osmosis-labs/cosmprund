@@ -633,7 +633,7 @@ func (rs *Store) PruneStores(clearPruningManager bool, pruningHeights []int64) (
 		return nil
 	}
 
-	fmt.Println("pruning store", "heights", pruningHeights)
+	fmt.Println("pruning store", "numHeights", len(pruningHeights))
 	pruneHeight := pruningHeights[len(pruningHeights)-1]
 
 	for key, store := range rs.stores {
