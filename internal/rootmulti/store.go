@@ -635,7 +635,7 @@ func (rs *Store) PruneStores(clearPruningManager bool, pruningHeights []int64) (
 
 	fmt.Println("pruning store", "numHeights", len(pruningHeights))
 	pruneHeight := pruningHeights[len(pruningHeights)-1]
-	fmt.Println("pruning store", "pruneHeight", pruneHeight)
+	fmt.Println("deleting versions to", "pruneHeight", pruneHeight)
 
 	for key, store := range rs.stores {
 		fmt.Println("pruning store", "key", key) // Also log store.name (a private variable)?
