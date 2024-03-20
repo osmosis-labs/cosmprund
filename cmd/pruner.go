@@ -602,11 +602,13 @@ func pruneAppState(home string) error {
 	if err = appStore.PruneStores(false, pruningHeights); err != nil {
 		return err
 	}
+	fmt.Println("pruning application state complete")
 
 	fmt.Println("compacting application state")
 	if err := appDB.Compact(nil, nil); err != nil {
 		return err
 	}
+	fmt.Println("compacting application state complete")
 
 	//create a new app store
 	return nil
@@ -650,11 +652,13 @@ func pruneTMData(home string) error {
 		if err != nil {
 			return err
 		}
+		fmt.Println("pruning block store complete")
 
 		fmt.Println("compacting block store")
 		if err := blockStoreDB.Compact(nil, nil); err != nil {
 			return err
 		}
+		fmt.Println("compacting block store complete")
 
 		return nil
 	})
@@ -665,11 +669,13 @@ func pruneTMData(home string) error {
 	if err != nil {
 		return err
 	}
+	fmt.Println("pruning state store complete")
 
 	fmt.Println("compacting state store")
 	if err := stateDB.Compact(nil, nil); err != nil {
 		return err
 	}
+	fmt.Println("compacting state store complete")
 
 	return nil
 }
