@@ -633,7 +633,6 @@ func (rs *Store) PruneStores(clearPruningManager bool, pruningHeights []int64) (
 		return nil
 	}
 
-	fmt.Println("pruning store", "numHeights", len(pruningHeights))
 	pruneHeight := pruningHeights[len(pruningHeights)-1]
 	fmt.Println("deleting versions to", "pruneHeight", pruneHeight)
 
