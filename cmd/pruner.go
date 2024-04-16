@@ -138,7 +138,7 @@ func pruneAppState(home string) error {
 	appStore := rootmulti.NewStore(appDB, log.NewNopLogger())
 
 	for _, value := range keys {
-		appStore.MountStoreWithDB(value, storetypes.StoreTypeIAVL, appDB)
+		appStore.MountStoreWithDB(value, storetypes.StoreTypeIAVL, nil)
 	}
 
 	err = appStore.LoadLatestVersion()
