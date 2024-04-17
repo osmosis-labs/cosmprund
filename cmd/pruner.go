@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 
@@ -31,7 +30,6 @@ import (
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
-	"github.com/neilotoole/errgroup"
 	"github.com/spf13/cobra"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 
@@ -48,17 +46,12 @@ func pruneCmd() *cobra.Command {
 		Short: "prune data from the application store and block store",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-
-			ctx := cmd.Context()
-			errs, _ := errgroup.WithContext(ctx)
 			var err error
 			if tendermint {
-				errs.Go(func() error {
-					if err = pruneTMData(args[0]); err != nil {
-						return err
-					}
-					return nil
-				})
+				err = pruneTMData(args[0])
+				if err != nil {
+					return err
+				}
 			}
 
 			if cosmosSdk {
@@ -66,11 +59,9 @@ func pruneCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return nil
-
 			}
 
-			return errs.Wait()
+			return nil
 		},
 	}
 	return cmd
@@ -211,24 +202,19 @@ func pruneTMData(home string) error {
 
 	pruneHeight := blockStore.Height() - int64(blocks)
 
-	errs, _ := errgroup.WithContext(context.Background())
-	errs.Go(func() error {
-		fmt.Println("pruning block store")
-		// prune block store
-		blocks, err = blockStore.PruneBlocks(pruneHeight)
-		if err != nil {
-			return err
-		}
-		fmt.Println("pruning block store complete")
+	fmt.Println("pruning block store")
+	// prune block store
+	blocks, err = blockStore.PruneBlocks(pruneHeight)
+	if err != nil {
+		return err
+	}
+	fmt.Println("pruning block store complete")
 
-		fmt.Println("compacting block store")
-		if err := blockStoreDB.Compact(nil, nil); err != nil {
-			return err
-		}
-		fmt.Println("compacting block store complete")
-
-		return nil
-	})
+	fmt.Println("compacting block store")
+	if err := blockStoreDB.Compact(nil, nil); err != nil {
+		return err
+	}
+	fmt.Println("compacting block store complete")
 
 	fmt.Println("pruning state store")
 	// prune state store

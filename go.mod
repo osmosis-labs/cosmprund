@@ -12,7 +12,6 @@ require (
 	github.com/cosmos/iavl v1.1.1
 	github.com/cosmos/ibc-go/v7 v7.3.2
 	github.com/gogo/protobuf v1.3.3 // indirect
-	github.com/neilotoole/errgroup v0.1.5
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.7.0
 	github.com/spf13/viper v1.16.0
