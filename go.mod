@@ -22,7 +22,6 @@ require (
 require (
 	github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v7 v7.1.2
 	github.com/cosmos/ibc-apps/modules/async-icq/v7 v7.1.1
-	github.com/neilotoole/errgroup v0.1.6
 )
 
 require (
