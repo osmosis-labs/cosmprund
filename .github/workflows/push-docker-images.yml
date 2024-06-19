@@ -47,7 +47,7 @@ jobs:
           file: Dockerfile
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           tags: |
               ${{ env.DOCKER_REPOSITORY }}:latest
               ${{ env.DOCKER_REPOSITORY }}:${{ env.MAJOR_VERSION }}

@@ -1,8 +1,8 @@
 # This workflow pushes new docker images to osmolabs/droid-dev:
 #
-# 1. Every new commit to the main branch
-#     `osmolabs/osmosis-dev:main-{SHORT_SHA}` is pushed.
-#     `osmolabs/osmosis-dev:main-{SHORT_SHA}-$(date +%s)` is pushed.
+# 1. Every new commit to the master branch
+#     `osmolabs/osmosis-dev:master-{SHORT_SHA}` is pushed.
+#     `osmolabs/osmosis-dev:master-{SHORT_SHA}-$(date +%s)` is pushed.
 #
 # Note: $(date +%s) is used to sort the tags in the docker registry.
 
@@ -11,7 +11,7 @@ name: Push Dev Images
 on:
   push:
     branches:
-    - main
+    - master
 
 env:
   DOCKER_REPOSITORY: osmolabs/cosmprund-dev
@@ -47,7 +47,7 @@ jobs:
         file: Dockerfile
         context: .
         push: true
-        platforms: linux/amd64,linux/arm64
+        platforms: linux/amd64
         tags: |
           ${{ env.DOCKER_REPOSITORY }}:${{ env.DOCKER_IMAGE_TAG }}
           ${{ env.DOCKER_REPOSITORY }}:${{ env.DOCKER_IMAGE_TAG_WITH_DATE }}
