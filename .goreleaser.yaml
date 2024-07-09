@@ -1,0 +1,59 @@
+project_name: cosmprund
+
+env:
+  - CGO_ENABLED=0
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: cosmprund
+    binary: cosmprund
+    flags:
+      - -mod=readonly
+      - -trimpath
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s
+      - -w
+
+archives:
+  - id: zipped
+    builds:
+      - cosmprund
+    name_template: "{{.ProjectName}}-{{.Os}}-{{.Arch}}"
+    format: tar.gz
+    files:
+      - none*
+  - id: binaries
+    builds:
+      - cosmprund
+    name_template: "{{.ProjectName}}-{{.Os}}-{{.Arch}}"
+    format: binary
+    files:
+      - none*
+
+release:
+  github:
+    owner: osmosis-labs
+    name: cosmprund
+  header: |
+    osmprund release {{ .Version }}
+  footer: |
+    ## 🐳 Docker
+
+    The following Docker images are available in our registry:
+
+    | Image                               | Tag            |
+    |-------------------------------------|----------------|
+    | `osmolabs/cosmprund:{{ .Version }}` | {{ .Version }} |
+
+  name_template: "cosmprund v{{.Version}}"
+  mode: replace
+  draft: true
