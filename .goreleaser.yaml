@@ -44,15 +44,15 @@ release:
     owner: osmosis-labs
     name: cosmprund
   header: |
-    osmprund release {{ .Version }}
+    cosmprund release {{ .Version }}
   footer: |
     ## 🐳 Docker
 
     The following Docker images are available in our registry:
 
-    | Image                               | Tag            |
-    |-------------------------------------|----------------|
-    | `osmolabs/cosmprund:{{ .Version }}` | {{ .Version }} |
+    | Image                               | Tag              |
+    |-------------------------------------|------------------|
+    | `osmolabs/cosmprund:{{ .Version }}` | `{{ .Version }}` |
 
   name_template: "cosmprund v{{.Version}}"
   mode: replace
