@@ -11,7 +11,7 @@ builds:
   - id: cosmprund
     binary: cosmprund
     flags:
-      # - -mod=readonly
+      - -mod=readonly
       - -trimpath
     goos:
       - linux
