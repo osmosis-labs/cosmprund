@@ -3,39 +3,46 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
-	"github.com/cometbft/cometbft/libs/log"
-	"github.com/cosmos/cosmos-sdk/types"
+	"cosmossdk.io/log"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
-	packetforwardtypes "github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v7/packetforward/types"
-	icqtypes "github.com/cosmos/ibc-apps/modules/async-icq/v7/types"
-	icahosttypes "github.com/cosmos/ibc-go/v7/modules/apps/27-interchain-accounts/host/types"
-	ibctransfertypes "github.com/cosmos/ibc-go/v7/modules/apps/transfer/types"
-	ibchost "github.com/cosmos/ibc-go/v7/modules/core/exported"
 
+	//capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+
+	packetforwardtypes "github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v8/packetforward/types"
+	icqtypes "github.com/cosmos/ibc-apps/modules/async-icq/v8/types"
+	icahosttypes "github.com/cosmos/ibc-go/v8/modules/apps/27-interchain-accounts/host/types"
+	ibctransfertypes "github.com/cosmos/ibc-go/v8/modules/apps/transfer/types"
+	ibchost "github.com/cosmos/ibc-go/v8/modules/core/exported"
+
+	"cosmossdk.io/store/iavl"
+	"cosmossdk.io/store/metrics"
+	"cosmossdk.io/store/types"
+	storetypes "cosmossdk.io/store/types"
+	evidencetypes "cosmossdk.io/x/evidence/types"
+	upgradetypes "cosmossdk.io/x/upgrade/types"
 	db "github.com/cometbft/cometbft-db"
 	"github.com/cometbft/cometbft/state"
 	tmstore "github.com/cometbft/cometbft/store"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	dbm "github.com/cosmos/cosmos-db"
 	consensusparamtypes "github.com/cosmos/cosmos-sdk/x/consensus/types"
 	crisistypes "github.com/cosmos/cosmos-sdk/x/crisis/types"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
-	evidencetypes "github.com/cosmos/cosmos-sdk/x/evidence/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/neilotoole/errgroup"
 	"github.com/spf13/cobra"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 
-	"github.com/binaryholdings/cosmos-pruner/internal/rootmulti"
+	"cosmossdk.io/store/rootmulti"
+	// "github.com/osmosis-labs/cosmprund/internal/rootmulti"
 )
 
 // load db
@@ -88,7 +95,7 @@ func pruneAppState(home string) error {
 	}
 
 	// Get BlockStore
-	appDB, err := db.NewGoLevelDBWithOpts("application", dbDir, &o)
+	appDB, err := dbm.NewGoLevelDBWithOpts("application", dbDir, &o)
 	if err != nil {
 		return err
 	}
@@ -98,18 +105,18 @@ func pruneAppState(home string) error {
 
 	// only mount keys from core sdk
 	// todo allow for other keys to be mounted
-	keys := types.NewKVStoreKeys(
+	keys := storetypes.NewKVStoreKeys(
 		authtypes.StoreKey, banktypes.StoreKey, authzkeeper.StoreKey, stakingtypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey, ibchost.StoreKey,
 		icahosttypes.StoreKey,
 		icqtypes.StoreKey,
 		evidencetypes.StoreKey, minttypes.StoreKey, govtypes.StoreKey, ibctransfertypes.StoreKey,
 		packetforwardtypes.StoreKey,
-		paramstypes.StoreKey, consensusparamtypes.StoreKey, capabilitytypes.StoreKey, crisistypes.StoreKey, upgradetypes.StoreKey,
+		paramstypes.StoreKey, consensusparamtypes.StoreKey, crisistypes.StoreKey, upgradetypes.StoreKey,
 		// feegrant.StoreKey,
 	)
 
 	if app == "osmosis" {
-		osmoKeys := types.NewKVStoreKeys(
+		osmoKeys := storetypes.NewKVStoreKeys(
 			"downtimedetector",
 			"hooks-for-ibc",
 			"lockup", //lockuptypes.StoreKey,
@@ -125,8 +132,9 @@ func pruneAppState(home string) error {
 			"poolincentives", //poolincentivestypes.StoreKey,
 			"tokenfactory",   //tokenfactorytypes.StoreKey,
 			"valsetpref",
-			"superfluid", // superfluidtypes.StoreKey,
-			"wasm",       // wasm.StoreKey,
+			"superfluid",   // superfluidtypes.StoreKey,
+			"wasm",         // wasm.StoreKey,
+			"smartaccount", // smartaccount.StoreKey,
 			//"rate-limited-ibc", // there is no store registered for this module
 		)
 		for key, value := range osmoKeys {
@@ -135,10 +143,13 @@ func pruneAppState(home string) error {
 	}
 
 	// TODO: cleanup app state
-	appStore := rootmulti.NewStore(appDB, log.NewNopLogger())
+	logger := log.NewLogger(os.Stderr)
+
+	appStore := rootmulti.NewStore(appDB, logger, metrics.NewMetrics([][]string{}))
 
 	for _, value := range keys {
 		appStore.MountStoreWithDB(value, storetypes.StoreTypeIAVL, nil)
+		appStore.SetIAVLDisableFastNode(true)
 	}
 
 	err = appStore.LoadLatestVersion()
@@ -152,32 +163,53 @@ func pruneAppState(home string) error {
 		return fmt.Errorf("the database has no valid heights to prune, the latest height: %v", latestHeight)
 	}
 
-	var pruningHeights []int64
-	for height := int64(1); height < latestHeight; height++ {
-		if height < latestHeight-int64(versions) {
-			pruningHeights = append(pruningHeights, height)
-		}
-	}
-
-	//pruningHeight := []int64{latestHeight - int64(versions)}
-
-	if len(pruningHeights) == 0 {
-		fmt.Println("no heights to prune")
-		return nil
-	}
-
-	if err = appStore.PruneStores(false, pruningHeights); err != nil {
+	if err = PruneStores(appStore, latestHeight); err != nil {
 		return err
 	}
 	fmt.Println("pruning application state complete")
 
 	fmt.Println("compacting application state")
-	if err := appDB.Compact(nil, nil); err != nil {
+	if err := appDB.ForceCompact(nil, nil); err != nil {
 		return err
 	}
 	fmt.Println("compacting application state complete")
 
 	//create a new app store
+	return nil
+}
+
+func PruneStores(rs *rootmulti.Store, pruningHeight int64) (err error) {
+	if pruningHeight <= 0 {
+		fmt.Println("pruning skipped, height is less than or equal to 0")
+		return nil
+	}
+
+	fmt.Println("pruning all stores", "heights", pruningHeight)
+	storeKeysByName := rs.StoreKeysByName()
+
+	// Iterate over the map
+	for storeName, storeKey := range storeKeysByName {
+		// Get the store using the store key
+		store := rs.GetCommitKVStore(storeKey)
+
+		// If the store is wrapped with an inter-block cache, we must first unwrap
+		// it to get the underlying IAVL store.
+		if store.GetStoreType() != types.StoreTypeIAVL {
+			continue
+		}
+
+		versions := store.(*iavl.Store).GetAllVersions()
+		versionExists := store.(*iavl.Store).VersionExists(int64(versions[0]))
+		fmt.Printf("Store %s: %d versions (latest: %d, exists: %v)\n", storeName, len(versions), versions[0], versionExists)
+
+		// Start sync pruning because of custom iavl version
+		// go get github.com/osmosis-labs/iavl@08fd812d460bcc95a2c733fdbaa11b53ec16b424
+		err := store.(*iavl.Store).DeleteVersionsTo(pruningHeight - 2)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -206,6 +238,10 @@ func pruneTMData(home string) error {
 	stateStore := state.NewStore(stateDB, state.StoreOptions{
 		DiscardABCIResponses: true,
 	})
+	stateData, err := stateStore.LoadFromDBOrGenesisFile("")
+	if err != nil {
+		return err
+	}
 
 	base := blockStore.Base()
 
@@ -215,7 +251,7 @@ func pruneTMData(home string) error {
 	errs.Go(func() error {
 		fmt.Println("pruning block store")
 		// prune block store
-		blocks, err = blockStore.PruneBlocks(pruneHeight)
+		blocks, _, err = blockStore.PruneBlocks(pruneHeight, stateData)
 		if err != nil {
 			return err
 		}
@@ -225,6 +261,7 @@ func pruneTMData(home string) error {
 		if err := blockStoreDB.Compact(nil, nil); err != nil {
 			return err
 		}
+
 		fmt.Println("compacting block store complete")
 
 		return nil
@@ -232,7 +269,11 @@ func pruneTMData(home string) error {
 
 	fmt.Println("pruning state store")
 	// prune state store
-	err = stateStore.PruneStates(base, pruneHeight)
+	// evidenceThreshold is the height at which evidence is deleted
+	// we need to keep at least 2 weeks of evidence which is roughly 1000000 blocks
+	evidenceThreshold := int64(1000000)
+	// Prune states will prune from base or pruneHeight-evidenceThreshold whichever is lower
+	err = stateStore.PruneStates(base, pruneHeight, pruneHeight-evidenceThreshold)
 	if err != nil {
 		return err
 	}

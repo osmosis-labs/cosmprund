@@ -73,6 +73,8 @@ func NewRootCmd() *cobra.Command {
 
 	rootCmd.AddCommand(
 		pruneCmd(),
+		checkStoreVersionCmd(),
+		pruneStoreCmd(),
 	)
 
 	return rootCmd
