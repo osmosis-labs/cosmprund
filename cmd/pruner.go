@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/cometbft/cometbft/libs/log"
+	"github.com/cometbft/cometbft/state"
 	"github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
@@ -18,7 +18,6 @@ import (
 	ibchost "github.com/cosmos/ibc-go/v7/modules/core/exported"
 
 	db "github.com/cometbft/cometbft-db"
-	"github.com/cometbft/cometbft/state"
 	tmstore "github.com/cometbft/cometbft/store"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	consensusparamtypes "github.com/cosmos/cosmos-sdk/x/consensus/types"
@@ -49,9 +48,13 @@ func pruneCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 
+			logger.Info("Starting pruning...")
+
 			ctx := cmd.Context()
 			errs, _ := errgroup.WithContext(ctx)
 			var err error
+
+			// Tendermint pruning (blockstore.db, state.db)
 			if tendermint {
 				errs.Go(func() error {
 					if err = pruneTMData(args[0]); err != nil {
@@ -94,7 +97,7 @@ func pruneAppState(home string) error {
 	}
 
 	//TODO: need to get all versions in the store, setting randomly is too slow
-	fmt.Println("pruning application state")
+	logger.Info("pruning application state")
 
 	// only mount keys from core sdk
 	// todo allow for other keys to be mounted
@@ -135,7 +138,17 @@ func pruneAppState(home string) error {
 	}
 
 	// TODO: cleanup app state
-	appStore := rootmulti.NewStore(appDB, log.NewNopLogger())
+	appStore := rootmulti.NewStore(appDB, logger)
+
+	// Configure IAVL fast node
+	// Default (false): fast node enabled for queries
+	// With flag (true): fast node disabled for faster pruning
+	appStore.SetIAVLDisableFastNode(disableFastNode)
+	if disableFastNode {
+		logger.Info("IAVL fast node disabled (faster pruning mode)")
+	} else {
+		logger.Info("IAVL fast node enabled (default mode)")
+	}
 
 	for _, value := range keys {
 		appStore.MountStoreWithDB(value, storetypes.StoreTypeIAVL, nil)
@@ -152,30 +165,34 @@ func pruneAppState(home string) error {
 		return fmt.Errorf("the database has no valid heights to prune, the latest height: %v", latestHeight)
 	}
 
-	var pruningHeights []int64
-	for height := int64(1); height < latestHeight; height++ {
-		if height < latestHeight-int64(versions) {
-			pruningHeights = append(pruningHeights, height)
-		}
-	}
+	// var pruningHeights []int64
+	// for height := int64(1); height < latestHeight; height++ {
+	// 	if height < latestHeight-int64(versions) {
+	// 		pruningHeights = append(pruningHeights, height)
+	// 	}
+	// }
 
-	//pruningHeight := []int64{latestHeight - int64(versions)}
-
-	if len(pruningHeights) == 0 {
-		fmt.Println("no heights to prune")
+	// Prune the last X versions
+	// This is the most efficient way to prune the application state
+	// as it only needs to delete the last X versions
+	pruneHeight := latestHeight - int64(versions)
+	if pruneHeight <= 0 {
+		logger.Error("no heights to prune")
 		return nil
 	}
+	pruningHeights := []int64{pruneHeight}
+	//pruningHeight := []int64{latestHeight - int64(versions)}
 
 	if err = appStore.PruneStores(false, pruningHeights); err != nil {
 		return err
 	}
-	fmt.Println("pruning application state complete")
+	logger.Info("pruning application state complete")
 
-	fmt.Println("compacting application state")
+	logger.Info("compacting application state")
 	if err := appDB.Compact(nil, nil); err != nil {
 		return err
 	}
-	fmt.Println("compacting application state complete")
+	logger.Info("compacting application state complete")
 
 	//create a new app store
 	return nil
@@ -197,7 +214,36 @@ func pruneTMData(home string) error {
 	}
 	blockStore := tmstore.NewBlockStore(blockStoreDB)
 
-	// Get StateStore
+	base := blockStore.Base()
+
+	pruneHeight := blockStore.Height() - int64(blocks)
+
+	// Check if there's anything to prune
+	if pruneHeight <= base {
+		logger.Error("no blocks to prune", "base", base, "target", pruneHeight)
+		return nil
+	} // Get StateStore
+
+	errs, _ := errgroup.WithContext(context.Background())
+	errs.Go(func() error {
+		logger.Info("pruning block store")
+		// prune block store
+		blocks, err = blockStore.PruneBlocks(pruneHeight)
+		if err != nil {
+			return err
+		}
+		logger.Info("pruning block store complete")
+
+		logger.Info("compacting block store")
+		if err := blockStoreDB.Compact(nil, nil); err != nil {
+			return err
+		}
+		logger.Info("compacting block store complete")
+
+		return nil
+	})
+
+	logger.Info("pruning state store")
 	stateDB, err := db.NewGoLevelDBWithOpts("state", dbDir, &o)
 	if err != nil {
 		return err
@@ -206,43 +252,18 @@ func pruneTMData(home string) error {
 	stateStore := state.NewStore(stateDB, state.StoreOptions{
 		DiscardABCIResponses: true,
 	})
-
-	base := blockStore.Base()
-
-	pruneHeight := blockStore.Height() - int64(blocks)
-
-	errs, _ := errgroup.WithContext(context.Background())
-	errs.Go(func() error {
-		fmt.Println("pruning block store")
-		// prune block store
-		blocks, err = blockStore.PruneBlocks(pruneHeight)
-		if err != nil {
-			return err
-		}
-		fmt.Println("pruning block store complete")
-
-		fmt.Println("compacting block store")
-		if err := blockStoreDB.Compact(nil, nil); err != nil {
-			return err
-		}
-		fmt.Println("compacting block store complete")
-
-		return nil
-	})
-
-	fmt.Println("pruning state store")
 	// prune state store
 	err = stateStore.PruneStates(base, pruneHeight)
 	if err != nil {
 		return err
 	}
-	fmt.Println("pruning state store complete")
+	logger.Info("pruning state store complete")
 
-	fmt.Println("compacting state store")
+	logger.Info("compacting state store")
 	if err := stateDB.Compact(nil, nil); err != nil {
 		return err
 	}
-	fmt.Println("compacting state store complete")
+	logger.Info("compacting state store complete")
 
 	return nil
 }

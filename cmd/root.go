@@ -3,19 +3,24 @@ package cmd
 import (
 	"os"
 
+	"github.com/cometbft/cometbft/libs/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 var (
-	dataDir    string
-	backend    string
-	app        string
-	cosmosSdk  bool
-	tendermint bool
-	blocks     uint64
-	versions   uint64
-	appName    = "cosmprund"
+	dataDir         string
+	backend         string
+	app             string
+	cosmosSdk       bool
+	tendermint      bool
+	blocks          uint64
+	versions        uint64
+	debug           bool
+	disableFastNode bool
+
+	appName = "cosmprund"
+	logger  log.Logger
 )
 
 // NewRootCmd returns the root command for relayer.
@@ -31,7 +36,15 @@ func NewRootCmd() *cobra.Command {
 		// if err := initConfig(rootCmd); err != nil {
 		// 	return err
 		// }
-
+		logger = log.NewTMLogger(log.NewSyncWriter(os.Stdout))
+		// Set log level based on debug flag
+		if debug {
+			// Show all logs including Debug level
+			logger = log.NewFilter(logger, log.AllowDebug())
+		} else {
+			// Only show Info level and above (hides Debug logs like loadVersion commitID)
+			logger = log.NewFilter(logger, log.AllowInfo())
+		}
 		return nil
 	}
 
@@ -68,6 +81,18 @@ func NewRootCmd() *cobra.Command {
 	// --tendermint flag
 	rootCmd.PersistentFlags().BoolVar(&tendermint, "tendermint", true, "set to false you dont want to prune tendermint data(default true)")
 	if err := viper.BindPFlag("tendermint", rootCmd.PersistentFlags().Lookup("tendermint")); err != nil {
+		panic(err)
+	}
+
+	// --debug flag
+	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging (shows debug logs)")
+	if err := viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug")); err != nil {
+		panic(err)
+	}
+
+	// --disable-fast-node flag
+	rootCmd.PersistentFlags().BoolVar(&disableFastNode, "disable-fast-node", true, "disable IAVL fast node for faster pruning (default: false, fast node enabled)")
+	if err := viper.BindPFlag("disable-fast-node", rootCmd.PersistentFlags().Lookup("disable-fast-node")); err != nil {
 		panic(err)
 	}
 

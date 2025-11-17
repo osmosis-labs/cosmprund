@@ -209,7 +209,7 @@ func (rs *Store) LoadVersion(ver int64) error {
 func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 	infos := make(map[string]types.StoreInfo)
 
-	fmt.Println("loadVersion", "ver", ver)
+	rs.logger.Info("loadVersion", "ver", ver)
 	cInfo := &types.CommitInfo{}
 
 	// load old data if we are not version 0
@@ -243,52 +243,105 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 		})
 	}
 
-	for _, key := range storesKeys {
-		storeParams := rs.storesParams[key]
-		commitID := rs.getCommitID(infos, key.Name())
-		fmt.Println("loadVersion commitID", "key", key, "ver", ver, "hash", fmt.Sprintf("%x", commitID.Hash))
-
-		// If it has been added, set the initial version
-		if upgrades.IsAdded(key.Name()) || upgrades.RenamedFrom(key.Name()) != "" {
-			storeParams.initialVersion = uint64(ver) + 1
-		} else if commitID.Version != ver && storeParams.typ == types.StoreTypeIAVL {
-			return fmt.Errorf("version of store %s mismatch root store's version; expected %d got %d; new stores should be added using StoreUpgrades", key.Name(), ver, commitID.Version)
+	// Parallel loading only when no upgrades (upgrades need deterministic order)
+	if upgrades == nil || (len(upgrades.Deleted) == 0 && len(upgrades.Added) == 0 && len(upgrades.Renamed) == 0) {
+		// Parallel loading for better performance
+		type loadResult struct {
+			key   types.StoreKey
+			store types.CommitKVStore
+			err   error
 		}
 
-		store, err := rs.loadCommitStoreFromParams(key, commitID, storeParams)
-		if err != nil {
-			return errors.Wrap(err, "failed to load store")
+		resultChan := make(chan loadResult, len(storesKeys))
+		var wg sync.WaitGroup
+
+		for _, key := range storesKeys {
+			wg.Add(1)
+			go func(k types.StoreKey) {
+				defer wg.Done()
+
+				storeParams := rs.storesParams[k]
+				commitID := rs.getCommitID(infos, k.Name())
+				rs.logger.Info("loadVersion commitID", "key", k, "ver", ver, "hash", fmt.Sprintf("%x", commitID.Hash))
+
+				// Check version mismatch
+				if commitID.Version != ver && storeParams.typ == types.StoreTypeIAVL {
+					resultChan <- loadResult{
+						key: k,
+						err: fmt.Errorf("version of store %s mismatch root store's version; expected %d got %d; new stores should be added using StoreUpgrades", k.Name(), ver, commitID.Version),
+					}
+					return
+				}
+
+				store, err := rs.loadCommitStoreFromParams(k, commitID, storeParams)
+
+				resultChan <- loadResult{
+					key:   k,
+					store: store,
+					err:   err,
+				}
+			}(key)
 		}
 
-		newStores[key] = store
+		wg.Wait()
+		close(resultChan)
 
-		// If it was deleted, remove all data
-		if upgrades.IsDeleted(key.Name()) {
-			if err := deleteKVStore(types.KVStore(store)); err != nil {
-				return errors.Wrapf(err, "failed to delete store %s", key.Name())
+		// Collect results
+		for result := range resultChan {
+			if result.err != nil {
+				return errors.Wrap(result.err, "failed to load store")
 			}
-			rs.removalMap[key] = true
-		} else if oldName := upgrades.RenamedFrom(key.Name()); oldName != "" {
-			// handle renames specially
-			// make an unregistered key to satisfy loadCommitStore params
-			oldKey := types.NewKVStoreKey(oldName)
-			oldParams := newStoreParams(oldKey, storeParams.db, storeParams.typ, 0)
+			newStores[result.key] = result.store
+		}
+	} else {
+		// Sequential loading when upgrades are present (order matters)
+		for _, key := range storesKeys {
+			storeParams := rs.storesParams[key]
+			commitID := rs.getCommitID(infos, key.Name())
+			rs.logger.Info("loadVersion commitID", "key", key, "ver", ver, "hash", fmt.Sprintf("%x", commitID.Hash))
 
-			// load from the old name
-			oldStore, err := rs.loadCommitStoreFromParams(oldKey, rs.getCommitID(infos, oldName), oldParams)
+			// If it has been added, set the initial version
+			if upgrades.IsAdded(key.Name()) || upgrades.RenamedFrom(key.Name()) != "" {
+				storeParams.initialVersion = uint64(ver) + 1
+			} else if commitID.Version != ver && storeParams.typ == types.StoreTypeIAVL {
+				return fmt.Errorf("version of store %s mismatch root store's version; expected %d got %d; new stores should be added using StoreUpgrades", key.Name(), ver, commitID.Version)
+			}
+
+			store, err := rs.loadCommitStoreFromParams(key, commitID, storeParams)
 			if err != nil {
-				return errors.Wrapf(err, "failed to load old store %s", oldName)
+				return errors.Wrap(err, "failed to load store")
 			}
 
-			// move all data
-			if err := moveKVStoreData(types.KVStore(oldStore), types.KVStore(store)); err != nil {
-				return errors.Wrapf(err, "failed to move store %s -> %s", oldName, key.Name())
-			}
+			newStores[key] = store
 
-			// add the old key so its deletion is committed
-			newStores[oldKey] = oldStore
-			// this will ensure it's not perpetually stored in commitInfo
-			rs.removalMap[oldKey] = true
+			// If it was deleted, remove all data
+			if upgrades.IsDeleted(key.Name()) {
+				if err := deleteKVStore(types.KVStore(store)); err != nil {
+					return errors.Wrapf(err, "failed to delete store %s", key.Name())
+				}
+				rs.removalMap[key] = true
+			} else if oldName := upgrades.RenamedFrom(key.Name()); oldName != "" {
+				// handle renames specially
+				// make an unregistered key to satisfy loadCommitStore params
+				oldKey := types.NewKVStoreKey(oldName)
+				oldParams := newStoreParams(oldKey, storeParams.db, storeParams.typ, 0)
+
+				// load from the old name
+				oldStore, err := rs.loadCommitStoreFromParams(oldKey, rs.getCommitID(infos, oldName), oldParams)
+				if err != nil {
+					return errors.Wrapf(err, "failed to load old store %s", oldName)
+				}
+
+				// move all data
+				if err := moveKVStoreData(types.KVStore(oldStore), types.KVStore(store)); err != nil {
+					return errors.Wrapf(err, "failed to move store %s -> %s", oldName, key.Name())
+				}
+
+				// add the old key so its deletion is committed
+				newStores[oldKey] = oldStore
+				// this will ensure it's not perpetually stored in commitInfo
+				rs.removalMap[oldKey] = true
+			}
 		}
 	}
 
@@ -448,7 +501,7 @@ func (rs *Store) Commit() types.CommitID {
 	}
 
 	if rs.commitHeader.Height != version {
-		fmt.Println("commit header and version mismatch", "header_height", rs.commitHeader.Height, "version", version)
+		rs.logger.Error("commit header and version mismatch", "header_height", rs.commitHeader.Height, "version", version)
 	}
 
 	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap)
@@ -606,8 +659,8 @@ func (rs *Store) handlePruning(version int64) error {
 	if !rs.pruningManager.ShouldPruneAtHeight(version) {
 		return nil
 	}
-	fmt.Println("prune start", "height", version)
-	defer fmt.Println("prune end", "height", version)
+	rs.logger.Info("prune start", "height", version)
+	defer rs.logger.Info("prune end", "height", version)
 	return rs.PruneStores(true, nil)
 }
 
@@ -622,40 +675,73 @@ func (rs *Store) PruneStores(clearPruningManager bool, pruningHeights []int64) (
 		}
 
 		if len(heights) == 0 {
-			fmt.Println("no heights to be pruned from pruning manager")
+			rs.logger.Error("no heights to be pruned from pruning manager")
 		}
 
 		pruningHeights = append(pruningHeights, heights...)
 	}
 
 	if len(pruningHeights) == 0 {
-		fmt.Println("no heights need to be pruned")
+		rs.logger.Error("no heights need to be pruned")
 		return nil
 	}
 
 	pruneHeight := pruningHeights[len(pruningHeights)-1]
-	fmt.Println("deleting versions to", "pruneHeight", pruneHeight)
+	rs.logger.Info("deleting versions to", "pruneHeight", pruneHeight)
 
+	// Collect pruning tasks for parallel processing
+	type pruneTask struct {
+		key   types.StoreKey
+		store types.CommitKVStore
+	}
+
+	// Collect only IAVL stores that need pruning
+	tasks := make([]pruneTask, 0, len(rs.stores))
 	for key, store := range rs.stores {
-		fmt.Println("pruning store", "key", key) // Also log store.name (a private variable)?
-
+		rs.logger.Info("pruning store", "key", key) // Also log store.name (a private variable)?
 		// If the store is wrapped with an inter-block cache, we must first unwrap
 		// it to get the underlying IAVL store.
 		if store.GetStoreType() != types.StoreTypeIAVL {
 			continue
 		}
+		tasks = append(tasks, pruneTask{
+			key:   key,
+			store: rs.GetCommitKVStore(key),
+		})
+	}
 
-		store = rs.GetCommitKVStore(key)
+	// Prune each store in parallel using goroutines
+	errChan := make(chan error, len(tasks))
+	var wg sync.WaitGroup
 
-		err := store.(*iavl.Store).DeleteVersionsTo(pruneHeight)
-		if err == nil {
-			continue
-		}
+	for _, task := range tasks {
+		wg.Add(1)
+		go func(t pruneTask) {
+			defer wg.Done()
+			rs.logger.Info("pruning store", "key", t.key.Name())
 
-		if errCause := errors.Cause(err); errCause != nil && errCause != iavltree.ErrVersionDoesNotExist {
+			err := t.store.(*iavl.Store).DeleteVersionsTo(pruneHeight)
+			if err != nil {
+				if errCause := errors.Cause(err); errCause != nil && errCause != iavltree.ErrVersionDoesNotExist {
+					errChan <- fmt.Errorf("failed to prune store %s: %w", t.key.Name(), err)
+					return
+				}
+			}
+			rs.logger.Info("pruning store complete", "key", t.key.Name())
+		}(task)
+	}
+
+	// Wait for all goroutines to complete
+	wg.Wait()
+	close(errChan)
+
+	// Check for errors
+	for err := range errChan {
+		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -804,7 +890,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	// and the following messages contain a SnapshotNode (i.e. an ExportNode). Store changes
 	// are demarcated by new SnapshotStore items.
 	for _, store := range stores {
-		fmt.Println("starting snapshot", "store", store.name, "height", height)
+		rs.logger.Info("starting snapshot", "store", store.name, "height", height)
 		exporter, err := store.Export(int64(height))
 		if err != nil {
 			rs.logger.Error("snapshot failed; exporter error", "store", store.name, "err", err)
@@ -826,7 +912,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 		for {
 			node, err := exporter.Next()
 			if err == iavltree.ErrorExportDone {
-				fmt.Println("snapshot Done", "store", store.name, "nodeCount", nodeCount)
+				rs.logger.Info("snapshot Done", "store", store.name, "nodeCount", nodeCount)
 				nodeCount = 0
 				break
 			} else if err != nil {
@@ -893,7 +979,7 @@ loop:
 			}
 			defer importer.Close()
 			// Importer height must reflect the node height (which usually matches the block height, but not always)
-			fmt.Println("restoring snapshot", "store", item.Store.Name)
+			rs.logger.Info("restoring snapshot", "store", item.Store.Name)
 
 		case *snapshottypes.SnapshotItem_IAVL:
 			if importer == nil {
@@ -960,7 +1046,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 			// If the whitelist is not empty, enable fast nodes for only the modules in the whitelist.
 			disabledFastNodes = true
 			if _, ok := rs.iavlFastNodeModuleWhitelist[key.Name()]; ok {
-				fmt.Println("fast node enabled for module", "module", key.Name())
+				rs.logger.Info("fast node enabled for module", "module", key.Name())
 				disabledFastNodes = false
 			}
 		}
@@ -1086,14 +1172,14 @@ func (rs *Store) GetCommitInfo(ver int64) (*types.CommitInfo, error) {
 }
 
 func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo) {
-	fmt.Println("flushing metadata", "height", version)
+	rs.logger.Info("flushing metadata", "height", version)
 	batch := db.NewBatch()
 	defer batch.Close()
 
 	if cInfo != nil {
 		flushCommitInfo(batch, version, cInfo)
 	} else {
-		fmt.Println("commitInfo is nil, not flushed", "height", version)
+		rs.logger.Error("commitInfo is nil, not flushed", "height", version)
 	}
 
 	flushLatestVersion(batch, version)
@@ -1101,7 +1187,7 @@ func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo
 	if err := batch.WriteSync(); err != nil {
 		panic(fmt.Errorf("error on batch write %w", err))
 	}
-	fmt.Println("flushing metadata finished", "height", version)
+	rs.logger.Info("flushing metadata finished", "height", version)
 }
 
 type storeParams struct {
